@@ -6,8 +6,21 @@
 ![Rust](https://img.shields.io/badge/Rust-stable-orange)
 ![Vue](https://img.shields.io/badge/Vue-3-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-green)
+![Release](https://img.shields.io/badge/Release-v0.1.0-success)
+
+## 下载安装
+
+> **Windows 用户**：点击下方链接下载安装包，双击运行即可安装。
+
+[![下载安装包](https://img.shields.io/badge/⬇_下载安装包-v0.1.0-brightgreen?style=for-the-badge&logo=github)](https://github.com/lisiyang2004-pixel/fanqie-novel-client/releases/download/v0.1.0/fanqie-novel-client_0.1.0_x64-setup.exe)
+
+- **安装包下载**：[fanqie-novel-client_0.1.0_x64-setup.exe](https://github.com/lisiyang2004-pixel/fanqie-novel-client/releases/download/v0.1.0/fanqie-novel-client_0.1.0_x64-setup.exe) (3.85 MB)
+- **所有版本**：[Releases 页面](https://github.com/lisiyang2004-pixel/fanqie-novel-client/releases)
+- **系统要求**：Windows 10/11（需预装 WebView2 运行时）
 
 ## 项目简介
+
+
 
 本项目是一个使用 Tauri v2 构建的桌面应用，用于从番茄小说网站搜索、浏览和下载小说内容。项目绕过了番茄小说的反爬机制（包括 API 签名认证和 PUA 字符替换），实现了完整的小说下载和管理功能。
 
