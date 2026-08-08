@@ -4,14 +4,25 @@ use crate::api::client::FanqieClient;
 
 impl FanqieClient {
     /// 获取书籍详情（通过解析详情页 HTML 的 __INITIAL_STATE__）
+    ///
+    /// 优先使用 /page/{book_id}，失败时回退到 /reader/{book_id}
     pub async fn get_book_detail(&self, book_id: &str) -> AppResult<BookDetail> {
-        let url = self.book_page_url(book_id);
-        let html = self.get_text(&url).await?;
-
+        let html = self.get_book_html(book_id).await?;
         let state = Self::extract_initial_state(&html)?;
-        let page = state
-            .get("page")
-            .ok_or_else(|| AppError::Other(anyhow::anyhow!("未找到 page 数据")))?;
+
+        // /reader/ 页面的数据在 state.reader.chapterData 中，bookId 可能与传入的不同
+        // 优先用 state.page，如果为空则尝试用 state.reader.chapterData
+        let page = if let Some(p) = state.get("page") {
+            let p_book_id = p.get("bookId").and_then(|v| v.as_str()).unwrap_or("");
+            if p_book_id.is_empty() {
+                // /reader/ 页面，从 chapterData 提取
+                Self::reader_page_to_state(&state)?
+            } else {
+                p.clone()
+            }
+        } else {
+            return Err(AppError::Other(anyhow::anyhow!("未找到 page 数据")));
+        };
 
         let book_id = page
             .get("bookId")
@@ -44,7 +55,7 @@ impl FanqieClient {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| extract_main_category(page));
+            .unwrap_or_else(|| extract_main_category(&page));
 
         // 字数: wordNumber 是数字
         let word_number = page
@@ -77,7 +88,7 @@ impl FanqieClient {
             .to_string();
 
         // 章节总数: 没有 chapterTotal 字段，从 chapterListWithVolume 计算
-        let chapter_count = count_chapters(page);
+        let chapter_count = count_chapters(&page);
 
         // 最新章节时间: lastPublishTime 是字符串时间戳(秒)
         let last_chapter_time = page
@@ -104,13 +115,19 @@ impl FanqieClient {
 
     /// 获取章节列表（从详情页 HTML 的 __INITIAL_STATE__ 提取）
     pub async fn get_chapter_list(&self, book_id: &str) -> AppResult<Vec<ChapterItem>> {
-        let url = self.book_page_url(book_id);
-        let html = self.get_text(&url).await?;
-
+        let html = self.get_book_html(book_id).await?;
         let state = Self::extract_initial_state(&html)?;
-        let page = state
-            .get("page")
-            .ok_or_else(|| AppError::Other(anyhow::anyhow!("未找到 page 数据")))?;
+
+        let page = if let Some(p) = state.get("page") {
+            let p_book_id = p.get("bookId").and_then(|v| v.as_str()).unwrap_or("");
+            if p_book_id.is_empty() {
+                Self::reader_page_to_state(&state)?
+            } else {
+                p.clone()
+            }
+        } else {
+            return Err(AppError::Other(anyhow::anyhow!("未找到 page 数据")));
+        };
 
         // chapterListWithVolume 是二维数组: [[{...}, {...}], [{...}]]
         // 每个一级元素是一卷的章节列表
@@ -240,4 +257,24 @@ fn parse_chapter(ch: &serde_json::Value, idx: i64) -> Option<ChapterItem> {
         index: idx,
         is_vip,
     })
+}
+
+
+impl FanqieClient {
+    /// 将 /reader/ 页面的 state.reader.chapterData 转换为类似 state.page 的结构
+    ///
+    /// /reader/ 页面结构:
+    ///   state.reader.chapterData = {
+    ///     bookId, bookName, author, abstract, category, wordNumber,
+    ///     status, thumbUri, chapterListWithVolume, ...
+    ///   }
+    fn reader_page_to_state(state: &serde_json::Value) -> AppResult<serde_json::Value> {
+        let chapter_data = state
+            .get("reader")
+            .and_then(|v| v.get("chapterData"))
+            .ok_or_else(|| AppError::Other(anyhow::anyhow!(
+                "/reader/ 页面未找到 chapterData 数据"
+            )))?;
+        Ok(chapter_data.clone())
+    }
 }

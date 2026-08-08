@@ -79,6 +79,57 @@ impl FanqieClient {
         format!("{}/reader/{}", Self::BASE_URL, item_id)
     }
 
+    /// 获取书籍详情页 HTML，自动在 /page/ 失败时回退到 /reader/
+    ///
+    /// 番茄小说的部分书籍在 /page/{id} 返回"暂无内容"下载引导页，
+    /// 但 /reader/{id} 仍可正常访问并包含 __INITIAL_STATE__ 数据。
+    pub async fn get_book_html(&self, book_id: &str) -> AppResult<String> {
+        let page_url = self.book_page_url(book_id);
+        match self.get_text(&page_url).await {
+            Ok(html) => {
+                if html.contains("__INITIAL_STATE__") {
+                    return Ok(html);
+                }
+                log::warn!(
+                    "/page/{} 返回的页面不含 __INITIAL_STATE__，回退到 /reader/",
+                    book_id
+                );
+            }
+            Err(e) => {
+                log::warn!("/page/{} 请求失败: {}，回退到 /reader/", book_id, e);
+            }
+        }
+
+        let reader_url = self.reader_url(book_id);
+        let html = self.get_text(&reader_url).await?;
+        if !html.contains("__INITIAL_STATE__") {
+            return Err(AppError::Other(anyhow::anyhow!(
+                "书籍 {} 的 /page/ 和 /reader/ 页面均无 __INITIAL_STATE__ 数据，可能已被下架",
+                book_id
+            )));
+        }
+        Ok(html)
+    }
+
+    /// 从 /reader/ 页面的 __INITIAL_STATE__ 中提取真正的 bookId
+    ///
+    /// /reader/{item_id} 页面的数据结构:
+    ///   state.reader.chapterData.bookId  -> 真正的书籍 ID
+    ///   state.reader.chapterData.itemId  -> 当前章节 ID
+    pub fn extract_real_book_id(state: &serde_json::Value) -> Option<String> {
+        // 尝试 state.reader.chapterData.bookId
+        if let Some(reader) = state.get("reader") {
+            if let Some(chapter_data) = reader.get("chapterData") {
+                if let Some(book_id) = chapter_data.get("bookId").and_then(|v| v.as_str()) {
+                    if !book_id.is_empty() {
+                        return Some(book_id.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// 从 HTML 中提取 `window.__INITIAL_STATE__` 的 JSON 内容
     ///
     /// 注意: 必须正确处理字符串内的 `{` `}` 和转义字符 `\"`，
